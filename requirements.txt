@@ -1,0 +1,9 @@
+# Network Scanner — Dependencies
+# Phase 1–4 : rich (terminal UI)
+# Phase 5   : customtkinter (GUI)
+#
+# Install all at once:
+#   pip install -r requirements.txt
+
+rich>=13.0.0
+customtkinter>=5.2.0
