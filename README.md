@@ -85,7 +85,7 @@ python gui.py
 | Phase | Focus | Status |
 |---|---|---|
 | 1 | Core TCP socket engine | ✅ Complete |
-| 2 | Subnet & port parsing (`ipaddress`) | 🔄 In progress |
+| 2 | Subnet & port parsing (`ipaddress`) | ✅ Complete |
 | 3 | Multi-threading (`concurrent.futures`) | ⏳ Pending |
 | 4 | CLI interface (`argparse`) | ⏳ Pending |
 | 5 | Desktop GUI (`customtkinter`) | ⏳ Pending |

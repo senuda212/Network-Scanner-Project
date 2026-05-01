@@ -29,7 +29,7 @@ echo "==> Running quick checks"
 python -m py_compile scanner.py gui.py
 python -c "import scanner, gui; print('Imports OK:', scanner.__name__, gui.NetworkScannerApp.__name__)"
 
-echo "==> Running Phase 1 scanner demo"
+echo "==> Running Phase 2 scanner demo"
 python scanner.py
 
 echo "==> Done"
