@@ -21,12 +21,21 @@ display helpers are unchanged and remain importable.
 """
 
 import socket
+import os
+import uuid
 import ipaddress
+import threading
+import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich import box
+
+from env_loader import load_dotenv
+
+load_dotenv()
 
 # ──────────────────────────────────────────────────────────
 #  Global console — single instance shared across all helpers
@@ -251,6 +260,109 @@ def parse_ports(port_arg: str) -> list:
     return sorted(ports)
 
 
+def validate_threads(threads: int) -> int:
+    if not isinstance(threads, int):
+        raise ValueError("--threads must be an integer")
+    if not (1 <= threads <= 500):
+        raise ValueError("--threads must be between 1 and 500")
+    return threads
+
+
+def validate_timeout(timeout: float) -> float:
+    try:
+        timeout_value = float(timeout)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("--timeout must be a number") from exc
+    if timeout_value <= 0:
+        raise ValueError("--timeout must be greater than 0")
+    return timeout_value
+
+
+def run_scan(
+    targets: list,
+    ports: list,
+    threads: int,
+    timeout: float,
+    progress_callback=None,
+) -> list:
+    """
+    Scan every host/port combination using a thread pool.
+
+    Args:
+        targets: List of IP address strings returned by resolve_targets().
+        ports: List of integer ports returned by parse_ports().
+        threads: Maximum worker threads to use.
+        timeout: Per-port socket timeout passed to scan_port().
+        progress_callback: Optional callable receiving (completed, total, result).
+
+    Returns:
+        List of scan result dictionaries sorted by host then port.
+    """
+    combinations = [(host, port) for host in targets for port in ports]
+    total = len(combinations)
+    results = []
+    results_lock = threading.Lock()
+    completed = 0
+
+    def scan_one(host: str, port: int) -> dict:
+        return scan_port(host, port, timeout)
+
+    with ThreadPoolExecutor(max_workers=max(1, threads)) as executor:
+        future_map = {
+            executor.submit(scan_one, host, port): (host, port)
+            for host, port in combinations
+        }
+
+        for future in as_completed(future_map):
+            host, port = future_map[future]
+            result = future.result()
+            result["host"] = host
+
+            with results_lock:
+                results.append(result)
+                completed += 1
+
+            if progress_callback is not None:
+                progress_callback(completed, total, result)
+
+    results.sort(key=lambda item: (item.get("host", ""), item["port"]))
+    return results
+
+
+def export_results(results: list, filepath: str, metadata: dict | None = None) -> None:
+    """Write scan results to a plain-text report file."""
+    metadata = metadata or {}
+
+    counts = {"open": 0, "closed": 0, "filtered": 0, "error": 0}
+    for result in results:
+        counts[result["state"]] = counts.get(result["state"], 0) + 1
+
+    with open(filepath, "w", encoding="utf-8") as handle:
+        handle.write("Network Scanner Report\n")
+        handle.write("=" * 24 + "\n\n")
+
+        for key, value in metadata.items():
+            handle.write(f"{key}: {value}\n")
+
+        if metadata:
+            handle.write("\n")
+
+        handle.write("Results\n")
+        handle.write("-" * 7 + "\n")
+        for result in results:
+            host = result.get("host", metadata.get("host", ""))
+            handle.write(
+                f"{host}:{result['port']} | {result['state']} | {result['service']}\n"
+            )
+
+        handle.write("\nSummary\n")
+        handle.write("-" * 7 + "\n")
+        handle.write(f"Open: {counts['open']}\n")
+        handle.write(f"Closed: {counts['closed']}\n")
+        handle.write(f"Filtered: {counts['filtered']}\n")
+        handle.write(f"Error: {counts['error']}\n")
+
+
 # ══════════════════════════════════════════════════════════
 #  Rich Display Helpers (Phase 1, unchanged)
 # ══════════════════════════════════════════════════════════
@@ -316,7 +428,7 @@ def print_banner(
     console.print(
         Panel(
             content,
-            title="[bold cyan] Network Scanner [/bold cyan][dim] Phase 2 [/dim]",
+            title="[bold cyan] Network Scanner [/bold cyan][dim] Threaded CLI [/dim]",
             border_style="cyan",
             padding=(0, 1),
         )
@@ -353,125 +465,91 @@ def print_summary(results: list, elapsed: float) -> None:
     )
 
 
-# ══════════════════════════════════════════════════════════
-#  Phase 2 Demo Entry Point
-#
-#  Run:  python scanner.py
-#
-#  Part A — Parser validation table (no network traffic)
-#  Part B — Live scan using the full Phase 2 pipeline
-# ══════════════════════════════════════════════════════════
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for Phase 4 usage."""
+    parser = argparse.ArgumentParser(description="Network Scanner")
+    parser.add_argument("--target", help="IP address, hostname, or CIDR block")
+    parser.add_argument("--ports", default="1-1024", help="Single port, list, or range")
+    parser.add_argument("--threads", type=int, default=100, help="Number of worker threads")
+    parser.add_argument("--timeout", type=float, default=1.0, help="Seconds per port timeout")
+    parser.add_argument("--output", help="Optional text file path for scan results")
+    parser.add_argument("--db", action="store_true", help="Save results to PostgreSQL using DATABASE_URL env var")
+    return parser
 
-if __name__ == "__main__":
+
+def run_cli(target: str, ports_arg: str, threads: int, timeout: float, output: str | None, db_enabled: bool = False) -> None:
+    """Execute the scanner in CLI mode using the threaded engine."""
+    # Strict input validation
+    targets = resolve_targets(target)
+    ports = parse_ports(ports_arg)
+
+    threads = validate_threads(threads)
+    timeout = validate_timeout(timeout)
+
+    console.print()
+    print_banner(targets[0], ports, timeout, mode=f"ThreadPoolExecutor ({threads} workers)")
+    console.print()
+
+    progress = {"completed": 0, "total": len(targets) * len(ports)}
+
+    # Optional DB writer (initialized only if caller configured it)
+    db_writer = None
+    db_pool = None
+
+    def try_init_db():
+        nonlocal db_writer, db_pool
+        try:
+            # lazy import to avoid hard dependency when not used
+            from db import init_db, DBWriter
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                console.print("[yellow]DATABASE_URL not set; skipping DB writes[/yellow]")
+                return
+            db_pool = init_db(db_url)
+            db_writer = DBWriter(db_pool, batch_size=100)
+            db_writer.start()
+            console.print("[green]DB writer started[/green]")
+        except Exception as exc:
+            console.print(f"[red]Failed to init DB writer: {exc}[/red]")
+
+    def on_progress(completed: int, total: int, result: dict) -> None:
+        progress["completed"] = completed
+        progress["total"] = total
+        if result["state"] == "open":
+            console.log(
+                f"[bold green]  ● OPEN[/bold green]  "
+                f"[cyan]{result['host']}:{result['port']:<6}[/cyan] {result['service']}"
+            )
+        # If DB writer active, enqueue a lightweight record
+        if db_writer is not None:
+            try:
+                db_writer.enqueue({
+                    "scan_id": scan_id,
+                    "ip": result.get("host"),
+                    "port": int(result.get("port")),
+                    "status": result.get("state"),
+                    "service": result.get("service"),
+                })
+            except Exception:
+                pass
+
     import time
 
-    # ── Part A: Parser validation (instant, no network) ──
-    console.print()
-    console.print(
-        Panel(
-            "[bold]Phase 2 — Parser Validation[/bold]\n"
-            "[dim]Verifying resolve_targets() and parse_ports() "
-            "before the live scan[/dim]",
-            border_style="cyan",
-            padding=(0, 1),
-        )
-    )
-    console.print()
+    # unique scan session id
+    scan_id = str(uuid.uuid4())
 
-    # resolve_targets() showcase
-    resolve_cases = [
-        ("Single IP",  "93.184.216.34"),
-        ("CIDR /30",   "10.0.0.0/30"),
-        ("Hostname",   "scanme.nmap.org"),
-    ]
+    # initialize DB writer if requested by caller
+    if db_enabled:
+        try_init_db()
 
-    rt = Table(
-        box=box.SIMPLE, show_header=True,
-        header_style="bold white", border_style="grey42",
-    )
-    rt.add_column("Input",   style="cyan",         min_width=22)
-    rt.add_column("Format",  style="dim",          min_width=12)
-    rt.add_column("Expands to",style="bright_white",min_width=32)
-
-    for label, value in resolve_cases:
-        try:
-            hosts   = resolve_targets(value)
-            display = (
-                hosts[0] if len(hosts) == 1
-                else f"{hosts[0]}  ...  {hosts[-1]}  ({len(hosts)} hosts)"
-            )
-            rt.add_row(value, label, f"[green]✓[/green]  {display}")
-        except ValueError as exc:
-            rt.add_row(value, label, f"[red]✕  {exc}[/red]")
-
-    console.print("  [bold]resolve_targets()[/bold]")
-    console.print(rt)
-    console.print()
-
-    # parse_ports() showcase
-    port_cases = [
-        ("Single",  "443"),
-        ("List",    "22,80,443"),
-        ("Range",   "8080-8090"),
-        ("Mixed",   "21,22,80,443,8000-8003"),
-    ]
-
-    pt = Table(
-        box=box.SIMPLE, show_header=True,
-        header_style="bold white", border_style="grey42",
-    )
-    pt.add_column("Input",    style="cyan",          min_width=22)
-    pt.add_column("Format",   style="dim",           min_width=10)
-    pt.add_column("Parsed",   style="bright_white",  min_width=32)
-
-    for label, value in port_cases:
-        try:
-            parsed  = parse_ports(value)
-            display = (
-                str(parsed)
-                if len(parsed) <= 7
-                else f"{parsed[:3]} ... {parsed[-1]}  ({len(parsed)} ports)"
-            )
-            pt.add_row(value, label, f"[green]✓[/green]  {display}")
-        except ValueError as exc:
-            pt.add_row(value, label, f"[red]✕  {exc}[/red]")
-
-    console.print("  [bold]parse_ports()[/bold]")
-    console.print(pt)
-
-    # ── Part B: Live scan using the full Phase 2 pipeline ─
-    TARGET_INPUT = "scanme.nmap.org"
-    PORT_INPUT   = "21,22,25,53,80,110,443,8080"
-    TIMEOUT      = 1.0
-
-    ports   = parse_ports(PORT_INPUT)
-    targets = resolve_targets(TARGET_INPUT)
-    host    = targets[0]
-
-    console.print()
-    print_banner(
-        host, ports, TIMEOUT,
-        mode="Sequential  [dim](Phase 3 adds threading)[/dim]",
-    )
-    console.print()
-
-    results  = []
     start_ts = time.perf_counter()
-
     with console.status(
-        f"[cyan]Scanning [bold]{len(ports)}[/bold] ports "
-        f"on [bold]{host}[/bold]...[/cyan]",
+        f"[cyan]Scanning [bold]{progress['total']}[/bold] host/port checks "
+        f"with [bold]{threads}[/bold] workers...[/cyan]",
         spinner="dots",
         spinner_style="cyan",
     ):
-        for port in ports:
-            result = scan_port(host, port, TIMEOUT)
-            results.append(result)
-            if result["state"] == "open":
-                console.log(
-                    f"[bold green]  ● OPEN[/bold green]  "
-                    f"[cyan]{port:<6}[/cyan] {result['service']}"
-                )
+        results = run_scan(targets, ports, threads, timeout, progress_callback=on_progress)
 
     elapsed = time.perf_counter() - start_ts
 
@@ -480,3 +558,172 @@ if __name__ == "__main__":
     console.print()
     print_summary(results, elapsed)
     console.print()
+
+    if output:
+        export_results(
+            results,
+            output,
+            metadata={
+                "target": target,
+                "ports": ports_arg,
+                "threads": threads,
+                "timeout": timeout,
+                "elapsed_seconds": f"{elapsed:.2f}",
+            },
+        )
+        console.print(f"[green]Saved results to {output}[/green]")
+
+    # shutdown DB writer gracefully if it was started
+    if db_writer is not None:
+        try:
+            db_writer.stop(flush=True)
+        except Exception:
+            pass
+    if db_pool is not None:
+        try:
+            db_pool.closeall()
+        except Exception:
+            pass
+
+
+# ══════════════════════════════════════════════════════════
+#  Threaded Demo / CLI Entry Point
+#
+#  Run:  python scanner.py
+#
+#  Part A — Parser validation table (no network traffic)
+#  Part B — Live scan using the full Phase 2 pipeline
+# ══════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    import sys
+
+    parser = build_arg_parser()
+    args = parser.parse_args()
+
+    if args.target:
+        try:
+            run_cli(args.target, args.ports, args.threads, args.timeout, args.output, db_enabled=args.db)
+        except ValueError as exc:
+            parser.error(str(exc))
+    else:
+        import time
+
+        # ── Part A: Parser validation (instant, no network) ──
+        console.print()
+        console.print(
+            Panel(
+                "[bold]Phase 2 — Parser Validation[/bold]\n"
+                "[dim]Verifying resolve_targets() and parse_ports() "
+                "before the live scan[/dim]",
+                border_style="cyan",
+                padding=(0, 1),
+            )
+        )
+        console.print()
+
+        # resolve_targets() showcase
+        resolve_cases = [
+            ("Single IP",  "93.184.216.34"),
+            ("CIDR /30",   "10.0.0.0/30"),
+            ("Hostname",   "scanme.nmap.org"),
+        ]
+
+        rt = Table(
+            box=box.SIMPLE, show_header=True,
+            header_style="bold white", border_style="grey42",
+        )
+        rt.add_column("Input",   style="cyan",         min_width=22)
+        rt.add_column("Format",  style="dim",          min_width=12)
+        rt.add_column("Expands to",style="bright_white",min_width=32)
+
+        for label, value in resolve_cases:
+            try:
+                hosts   = resolve_targets(value)
+                display = (
+                    hosts[0] if len(hosts) == 1
+                    else f"{hosts[0]}  ...  {hosts[-1]}  ({len(hosts)} hosts)"
+                )
+                rt.add_row(value, label, f"[green]✓[/green]  {display}")
+            except ValueError as exc:
+                rt.add_row(value, label, f"[red]✕  {exc}[/red]")
+
+        console.print("  [bold]resolve_targets()[/bold]")
+        console.print(rt)
+        console.print()
+
+        # parse_ports() showcase
+        port_cases = [
+            ("Single",  "443"),
+            ("List",    "22,80,443"),
+            ("Range",   "8080-8090"),
+            ("Mixed",   "21,22,80,443,8000-8003"),
+        ]
+
+        pt = Table(
+            box=box.SIMPLE, show_header=True,
+            header_style="bold white", border_style="grey42",
+        )
+        pt.add_column("Input",    style="cyan",          min_width=22)
+        pt.add_column("Format",   style="dim",           min_width=10)
+        pt.add_column("Parsed",   style="bright_white",  min_width=32)
+
+        for label, value in port_cases:
+            try:
+                parsed  = parse_ports(value)
+                display = (
+                    str(parsed)
+                    if len(parsed) <= 7
+                    else f"{parsed[:3]} ... {parsed[-1]}  ({len(parsed)} ports)"
+                )
+                pt.add_row(value, label, f"[green]✓[/green]  {display}")
+            except ValueError as exc:
+                pt.add_row(value, label, f"[red]✕  {exc}[/red]")
+
+        console.print("  [bold]parse_ports()[/bold]")
+        console.print(pt)
+
+        # ── Part B: Live scan using the threaded Phase 3 pipeline ─
+        TARGET_INPUT = "scanme.nmap.org"
+        PORT_INPUT   = "21,22,25,53,80,110,443,8080"
+        THREADS      = 25
+        TIMEOUT      = 1.0
+
+        ports   = parse_ports(PORT_INPUT)
+        targets = resolve_targets(TARGET_INPUT)
+
+        console.print()
+        print_banner(
+            targets[0], ports, TIMEOUT,
+            mode=f"ThreadPoolExecutor ({THREADS} workers)",
+        )
+        console.print()
+
+        progress = {"completed": 0, "total": len(targets) * len(ports)}
+
+        def on_progress(completed: int, total: int, result: dict) -> None:
+            progress["completed"] = completed
+            progress["total"] = total
+            if result["state"] == "open":
+                console.log(
+                    f"[bold green]  ● OPEN[/bold green]  "
+                    f"[cyan]{result['host']}:{result['port']:<6}[/cyan] {result['service']}"
+                )
+
+        start_ts = time.perf_counter()
+
+        with console.status(
+            f"[cyan]Scanning [bold]{progress['total']}[/bold] host/port checks "
+            f"with [bold]{THREADS}[/bold] workers...[/cyan]",
+            spinner="dots",
+            spinner_style="cyan",
+        ):
+            results = run_scan(targets, ports, THREADS, TIMEOUT, progress_callback=on_progress)
+
+        elapsed = time.perf_counter() - start_ts
+
+        console.print()
+        console.print(build_results_table(results, show_closed=False))
+        console.print()
+        print_summary(results, elapsed)
+        console.print()
