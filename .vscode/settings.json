@@ -1,0 +1,4 @@
+{
+  // Use .env files to populate environment variables inside the integrated terminal
+  "python.terminal.useEnvFile": true
+}
