@@ -134,31 +134,23 @@ class NetworkScannerApp(ctk.CTk):
         # Padding frame
         form = ctk.CTkScrollableFrame(parent, fg_color="transparent")
         form.pack(fill="both", expand=True, padx=20, pady=20)
-        form.grid_columnconfigure(0, weight=1)
 
         # ─── INPUT SETTINGS SECTION ───
         self._section_header(form, "Input Settings")
-        row = 1
 
         # Target
-        ctk.CTkLabel(form, text="Target:", font=ctk.CTkFont(weight="bold")).grid(
-            row=row, column=0, sticky="w", pady=(12, 4)
-        )
+        ctk.CTkLabel(form, text="Target:", font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(12, 4))
         self.target_entry = ctk.CTkEntry(
             form, placeholder_text="192.168.1.0/24 or scanme.nmap.org", height=32
         )
         self.target_entry.insert(0, "scanme.nmap.org")
-        self.target_entry.grid(row=row+1, column=0, sticky="ew", pady=(0, 12))
-        row += 2
+        self.target_entry.pack(fill="x", pady=(0, 12))
 
         # Threads & Timeout (side by side)
-        ctk.CTkLabel(form, text="Scan Parameters:", font=ctk.CTkFont(weight="bold")).grid(
-            row=row, column=0, sticky="w", pady=(12, 4)
-        )
-        row += 1
+        ctk.CTkLabel(form, text="Scan Parameters:", font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(12, 4))
 
         params_frame = ctk.CTkFrame(form, fg_color="transparent")
-        params_frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        params_frame.pack(fill="x", pady=(0, 12))
         params_frame.grid_columnconfigure((0, 1), weight=1)
 
         ctk.CTkLabel(params_frame, text="Threads:").grid(row=0, column=0, sticky="w")
@@ -171,15 +163,12 @@ class NetworkScannerApp(ctk.CTk):
         self.timeout_entry.insert(0, "1.0")
         self.timeout_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
-        row += 1
-
         # ─── PORT SELECTION SECTION ───
-        self._section_header(form, "Port Selection", row=row)
-        row += 1
+        self._section_header(form, "Port Selection")
 
         # Port buttons in scrollable frame
         ports_frame = ctk.CTkScrollableFrame(form, height=200, fg_color="#222", corner_radius=8)
-        ports_frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        ports_frame.pack(fill="x", pady=(0, 12))
         ports_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
         col = 0
@@ -207,27 +196,21 @@ class NetworkScannerApp(ctk.CTk):
                 col = 0
                 btn_row += 1
 
-        row += 1
-
         # Custom Ports
-        ctk.CTkLabel(form, text="Custom Ports:", font=ctk.CTkFont(weight="bold")).grid(
-            row=row, column=0, sticky="w", pady=(12, 4)
-        )
+        ctk.CTkLabel(form, text="Custom Ports:", font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(12, 4))
         self.custom_ports_entry = ctk.CTkEntry(
             form,
             placeholder_text="e.g. 1-1024 or 22,80,443 (optional)",
             height=32
         )
-        self.custom_ports_entry.grid(row=row+1, column=0, sticky="ew", pady=(0, 12))
+        self.custom_ports_entry.pack(fill="x", pady=(0, 12))
         self.custom_ports_entry.bind("<KeyRelease>", self.sync_from_input)
-        row += 2
 
         # ─── DATABASE SECTION ───
-        self._section_header(form, "Database", row=row)
-        row += 1
+        self._section_header(form, "Database")
 
         db_toggle_frame = ctk.CTkFrame(form, fg_color="transparent")
-        db_toggle_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        db_toggle_frame.pack(anchor="w", pady=(0, 8))
 
         self.db_var = ctk.BooleanVar(value=True)
         self.db_toggle = ctk.CTkCheckBox(
@@ -238,21 +221,18 @@ class NetworkScannerApp(ctk.CTk):
         )
         self.db_toggle.pack(side="left")
 
-        row += 1
-
-        ctk.CTkLabel(form, text="Database URL:").grid(row=row, column=0, sticky="w", pady=(8, 4))
+        ctk.CTkLabel(form, text="Database URL:").pack(anchor="w", pady=(8, 4))
         self.db_url_entry = ctk.CTkEntry(
             form,
             placeholder_text="postgresql://user:pass@host:5432/db",
             height=32
         )
         self.db_url_entry.insert(0, os.environ.get("DATABASE_URL", ""))
-        self.db_url_entry.grid(row=row+1, column=0, sticky="ew", pady=(0, 12))
-        row += 2
+        self.db_url_entry.pack(fill="x", pady=(0, 12))
 
         # ─── ACTION BUTTONS ───
         button_frame = ctk.CTkFrame(form, fg_color="transparent")
-        button_frame.grid(row=row, column=0, sticky="ew", pady=(20, 0))
+        button_frame.pack(fill="x", pady=(20, 0))
         button_frame.grid_columnconfigure((0, 1), weight=1)
 
         self.scan_button = ctk.CTkButton(
@@ -276,14 +256,10 @@ class NetworkScannerApp(ctk.CTk):
         )
         self.export_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-    def _section_header(self, parent, title: str, row: int = None):
+    def _section_header(self, parent, title: str):
         """Create a section header"""
-        if row is None:
-            frame = ctk.CTkFrame(parent, fg_color="transparent")
-            frame.pack(fill="x", pady=(20, 12))
-        else:
-            frame = ctk.CTkFrame(parent, fg_color="transparent")
-            frame.grid(row=row, column=0, sticky="ew", pady=(20, 12))
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.pack(fill="x", pady=(20, 12))
 
         ctk.CTkLabel(
             frame,

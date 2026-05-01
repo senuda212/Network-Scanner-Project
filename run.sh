@@ -68,23 +68,7 @@ shift || true
 case "$CMD" in
   gui)
     echo "Initializing database..."
-    python -c "
-from db import init_db
-from env_loader import load_dotenv
-import os
-load_dotenv()
-db_url = os.environ.get('DATABASE_URL', '')
-if db_url:
-    try:
-        pool = init_db(db_url)
-        pool.closeall()
-        print('✓ Database initialized successfully')
-    except Exception as e:
-        print(f'⚠ Database initialization failed: {e}')
-        print('Continuing without database...')
-else:
-    print('⚠ DATABASE_URL not set. Set it in .env to enable database storage.')
-" || true
+    python init_db_startup.py
     echo "Starting GUI (press Ctrl-C to quit)..."
     python gui.py
     ;;
