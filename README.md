@@ -156,3 +156,49 @@ Only scan networks and hosts you own or have explicit written permission to test
 | Member 2 | Phase 2 — Subnet parsing |
 | Member 3 | Phase 3 — Multi-threading |
 | Member 4 | Phase 4 — CLI / Phase 5 — GUI |
+
+---
+
+## PostgreSQL local setup (Windows)
+
+If you want to enable persistent storage for scan results using PostgreSQL on your development machine, follow these steps.
+
+- Ensure PostgreSQL is installed (e.g. PostgreSQL 18) and `pgAdmin` is available.
+- The project expects a database URL in the `DATABASE_URL` environment variable or a local `.env` file. Example format:
+
+```
+DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/<dbname>
+```
+
+Quick local defaults (what was used during development):
+
+- Host: `localhost`
+- Port: `5434` (your installer may use 5432; check `postgresql.conf`)
+- Superuser: `postgres`
+- Example DB name: `scannerDB`
+
+Example `.env` (DO NOT commit credentials):
+
+```
+# .env (local, ignored)
+DATABASE_URL=postgresql://postgres:admin@localhost:5434/scannerDB
+```
+
+Initialize the database and create the schema (run from the project root with your venv activated):
+
+```powershell
+# activate venv (PowerShell)
+. .\.venv\Scripts\Activate.ps1
+# run init script (creates DB if missing and creates the scans table)
+python init_db_startup.py
+```
+
+If the script fails to connect, check:
+
+- That the PostgreSQL service is running (Windows Services or `pgAdmin`).
+- The port PostgreSQL is listening on (`postgresql.conf`: `listen_addresses` and `port`).
+- `pg_hba.conf` for authentication method (local host entries normally use `scram-sha-256` requiring a password).
+
+Security note: keep `.env` in `.gitignore` and do not commit passwords to the repository. For CI or shared deployments, use secure secret management.
+
+---
