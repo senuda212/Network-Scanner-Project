@@ -93,7 +93,9 @@ python scanner.py --target 192.168.1.0/24 --db
 python gui.py
 ```
 
-The GUI supports CIDR targets, port lists/ranges, live threaded progress, and export of the most recent scan results.
+The GUI supports CIDR targets, multi-select port toggles for common ports, an optional custom port field for ranges/lists, live threaded progress, and export of the most recent scan results.
+
+The port selector is shown as a grid of toggles for the most common ports, so you can pick several at once without typing them manually. If you need a wider range or a custom list, use the custom ports field below the toggles.
 
 ### Web Dashboard
 
