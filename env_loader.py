@@ -7,13 +7,13 @@ import os
 from pathlib import Path
 
 
-def load_dotenv(path: str | None = None) -> dict[str, str]:
+def load_dotenv(path: str | None = None, override: bool = False) -> dict[str, str]:
     """Load KEY=VALUE pairs from a local .env file into os.environ.
 
     Rules:
     - ignores blank lines and comments
     - supports optional leading `export `
-    - does not override existing environment variables
+    - can optionally override existing environment variables
     """
     env_path = Path(path or ".env")
     loaded: dict[str, str] = {}
@@ -35,6 +35,7 @@ def load_dotenv(path: str | None = None) -> dict[str, str]:
         if not key:
             continue
         loaded[key] = value
-        os.environ.setdefault(key, value)
+        if override or key not in os.environ:
+            os.environ[key] = value
 
     return loaded

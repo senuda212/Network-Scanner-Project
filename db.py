@@ -7,6 +7,7 @@ import time
 import logging
 import threading
 import queue
+from pathlib import Path
 from typing import List, Dict, Optional
 
 import psycopg2
@@ -14,7 +15,7 @@ from psycopg2 import pool
 
 from env_loader import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,14 @@ CREATE TABLE IF NOT EXISTS scans (
     service VARCHAR(128)
 );
 """
+
+CREATE_INDEX_SQL = [
+    "CREATE INDEX IF NOT EXISTS idx_scans_scan_id ON scans (scan_id);",
+    "CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans (timestamp DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_scans_target_ip ON scans (target_ip);",
+    "CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status);",
+    "CREATE INDEX IF NOT EXISTS idx_scans_port ON scans (port);",
+]
 
 
 class DBWriter:
@@ -132,6 +141,8 @@ def init_db(db_url: Optional[str] = None, minconn: int = 1, maxconn: int = 10) -
         conn = db_pool.getconn()
         with conn.cursor() as cur:
             cur.execute(CREATE_TABLE_SQL)
+            for statement in CREATE_INDEX_SQL:
+                cur.execute(statement)
         conn.commit()
     finally:
         if conn:

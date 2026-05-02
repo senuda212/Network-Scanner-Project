@@ -7,6 +7,7 @@ import os
 import queue
 import threading
 import uuid
+from pathlib import Path
 
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
@@ -23,7 +24,7 @@ from scanner import (
     validate_timeout,
 )
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
 
 # Port service name mapping for UI display
 PORT_LABELS = {

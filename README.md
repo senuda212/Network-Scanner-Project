@@ -13,7 +13,7 @@ A multi-threaded TCP network scanner built in Python for internal network auditi
 - **Multi-threaded scanning** — up to 10–100× faster than sequential via `concurrent.futures`
 - **Professional CLI** with `argparse` — flags for target, ports, threads, timeout, and output
 - **Modern GUI** built with `customtkinter` — dark/light mode, live results, progress bar, export
-- **Web dashboard** built with Flask — local localhost view of saved scans and stats
+- **Web dashboard** built with Flask — modern local reporting console with scan history, stats, exposure findings, and remediation hints
 - **PostgreSQL support** — optional persistent storage for scan results via `DATABASE_URL`
 - **Rich terminal output** — coloured tables, spinners, and scan summaries
 
@@ -109,7 +109,15 @@ Open the dashboard in your browser at:
 http://127.0.0.1:5000/
 ```
 
-The dashboard is a local localhost web app for viewing stored scan results. It is separate from the desktop GUI and only shows data if `DATABASE_URL` is configured.
+The dashboard is a read-only reporting surface for stored scan data. It shows scan-session history, summary metrics, recurring exposure patterns, and concise remediation guidance for the most relevant findings. It is separate from the desktop GUI and only shows data if `DATABASE_URL` is configured.
+
+What it shows:
+
+- Recent scan sessions grouped by `scan_id`
+- Summary cards for scan volume, open ports, and critical findings
+- Trend charts for scan activity and status breakdown
+- Top exposed ports and hosts
+- Defensive hardening guidance for risky exposure points
 
 ### One-command launcher
 
@@ -200,5 +208,6 @@ If the script fails to connect, check:
 - `pg_hba.conf` for authentication method (local host entries normally use `scram-sha-256` requiring a password).
 
 Security note: keep `.env` in `.gitignore` and do not commit passwords to the repository. For CI or shared deployments, use secure secret management.
+The example `admin` password is for local development only; change it before using PostgreSQL on any shared or production system.
 
 ---

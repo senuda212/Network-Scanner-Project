@@ -33,9 +33,11 @@ from rich.panel import Panel
 from rich.text import Text
 from rich import box
 
+from pathlib import Path
+
 from env_loader import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
 
 # ──────────────────────────────────────────────────────────
 #  Global console — single instance shared across all helpers
@@ -78,47 +80,64 @@ def get_service_name(port: int) -> str:
         return "unknown"
 
 
-def scan_port(host: str, port: int, timeout: float = 1.0) -> dict:
+def scan_port(host: str, port: int, timeout: float = 3.0, retries: int = 1) -> dict:
     """
-    Attempt a TCP connection to host:port and return the port state.
+    Attempt a TCP connection to host:port with retries and smart detection.
 
-    Uses connect_ex() instead of connect() so that connection failures
-    return an error code rather than raising an exception — critical
-    for performance when scanning hundreds of closed ports.
+    Improved version with:
+    - Longer default timeout (3.0s instead of 1.0s) for slow services
+    - Automatic retry logic for unreliable connections
+    - Socket option optimizations (TCP_NODELAY, SO_LINGER)
+    - Better distinction between closed vs filtered vs open
 
     Port States:
         'open'     -> connect_ex() returned 0; port accepted the SYN
-        'closed'   -> non-zero OS error code; port is actively rejecting
-        'filtered' -> socket.timeout; packet silently dropped (firewall)
-        'error'    -> DNS resolution failed; hostname is invalid
+        'closed'   -> connection refused (RST or ICMP error)
+        'filtered' -> socket.timeout; no response after retries
+        'error'    -> DNS or network error
 
     Args:
         host:    Target IP address or hostname string
         port:    TCP port number to probe
-        timeout: Seconds to wait before marking 'filtered' (default 1.0)
+        timeout: Seconds to wait per attempt (default 3.0)
+        retries: Number of retry attempts if connection times out (default 1)
 
     Returns:
         dict with keys: port (int), state (str), service (str)
     """
     result = {
         "port":    port,
-        "state":   "closed",
+        "state":   "filtered",
         "service": get_service_name(port),
     }
 
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(timeout)
-            error_code = sock.connect_ex((host, port))
-            result["state"] = "open" if error_code == 0 else "closed"
-
-    except socket.timeout:
-        result["state"] = "filtered"
-    except socket.gaierror:
-        result["state"] = "error"
-        result["service"] = "DNS resolution failed"
-    except OSError:
-        result["state"] = "filtered"
+    for attempt in range(retries + 1):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b'\x01\x00\x00\x00\x00\x00\x00\x00')
+                sock.settimeout(timeout)
+                error_code = sock.connect_ex((host, port))
+                if error_code == 0:
+                    result["state"] = "open"
+                    return result
+                elif error_code in (111, 10061):
+                    result["state"] = "closed"
+                    return result
+        except socket.timeout:
+            if attempt < retries:
+                continue
+            result["state"] = "filtered"
+            return result
+        except socket.gaierror:
+            result["state"] = "error"
+            result["service"] = "DNS resolution failed"
+            return result
+        except OSError:
+            if attempt < retries:
+                continue
+            result["state"] = "filtered"
+            return result
 
     return result
 
@@ -284,6 +303,7 @@ def run_scan(
     threads: int,
     timeout: float,
     progress_callback=None,
+    retries: int = 1,
 ) -> list:
     """
     Scan every host/port combination using a thread pool.
@@ -294,6 +314,7 @@ def run_scan(
         threads: Maximum worker threads to use.
         timeout: Per-port socket timeout passed to scan_port().
         progress_callback: Optional callable receiving (completed, total, result).
+        retries: Number of retry attempts per port if connection times out (default 1).
 
     Returns:
         List of scan result dictionaries sorted by host then port.
@@ -305,7 +326,7 @@ def run_scan(
     completed = 0
 
     def scan_one(host: str, port: int) -> dict:
-        return scan_port(host, port, timeout)
+        return scan_port(host, port, timeout, retries=retries)
 
     with ThreadPoolExecutor(max_workers=max(1, threads)) as executor:
         future_map = {
@@ -471,7 +492,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target", help="IP address, hostname, or CIDR block")
     parser.add_argument("--ports", default="1-1024", help="Single port, list, or range")
     parser.add_argument("--threads", type=int, default=100, help="Number of worker threads")
-    parser.add_argument("--timeout", type=float, default=1.0, help="Seconds per port timeout")
+    parser.add_argument("--timeout", type=float, default=3.0, help="Seconds per port timeout (default 3.0s for nmap-like accuracy)")
     parser.add_argument("--output", help="Optional text file path for scan results")
     parser.add_argument("--db", action="store_true", help="Save results to PostgreSQL using DATABASE_URL env var")
     return parser
@@ -687,7 +708,7 @@ if __name__ == "__main__":
         TARGET_INPUT = "scanme.nmap.org"
         PORT_INPUT   = "21,22,25,53,80,110,443,8080"
         THREADS      = 25
-        TIMEOUT      = 1.0
+        TIMEOUT      = 3.0
 
         ports   = parse_ports(PORT_INPUT)
         targets = resolve_targets(TARGET_INPUT)

@@ -3,13 +3,14 @@
 
 import os
 import sys
+from pathlib import Path
 from db import init_db
 from env_loader import load_dotenv
 
 def init_database():
     """Initialize database connection and schema"""
-    # Load existing env values (from environment or .env)
-    load_dotenv()
+    # Load project config from the repo .env so the same URL is used in every shell.
+    load_dotenv(Path(__file__).resolve().with_name('.env'), override=True)
     db_url = os.environ.get('DATABASE_URL', '')
 
     # If DATABASE_URL is missing, attempt to scaffold a .env from .env.example
@@ -23,7 +24,7 @@ def init_database():
                     wf.write(rf.read())
                 print('ℹ Created .env from .env.example — please edit it with your DATABASE_URL')
                 # Reload env vars from the newly created .env
-                load_dotenv()
+                load_dotenv(Path(__file__).resolve().with_name('.env'), override=True)
                 db_url = os.environ.get('DATABASE_URL', '')
             except Exception as e:
                 print(f'⚠ Failed to create .env from .env.example: {e}')
