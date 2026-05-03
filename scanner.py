@@ -21,7 +21,6 @@ display helpers are unchanged and remain importable.
 """
 
 import socket
-import os
 import uuid
 import ipaddress
 import threading
@@ -32,12 +31,6 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich import box
-
-from pathlib import Path
-
-from env_loader import load_dotenv
-
-load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
 
 # ──────────────────────────────────────────────────────────
 #  Global console — single instance shared across all helpers
@@ -494,11 +487,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--threads", type=int, default=100, help="Number of worker threads")
     parser.add_argument("--timeout", type=float, default=3.0, help="Seconds per port timeout (default 3.0s for nmap-like accuracy)")
     parser.add_argument("--output", help="Optional text file path for scan results")
-    parser.add_argument("--db", action="store_true", help="Save results to PostgreSQL using DATABASE_URL env var")
     return parser
 
 
-def run_cli(target: str, ports_arg: str, threads: int, timeout: float, output: str | None, db_enabled: bool = False) -> None:
+def run_cli(target: str, ports_arg: str, threads: int, timeout: float, output: str | None) -> None:
     """Execute the scanner in CLI mode using the threaded engine."""
     # Strict input validation
     targets = resolve_targets(target)
@@ -513,26 +505,6 @@ def run_cli(target: str, ports_arg: str, threads: int, timeout: float, output: s
 
     progress = {"completed": 0, "total": len(targets) * len(ports)}
 
-    # Optional DB writer (initialized only if caller configured it)
-    db_writer = None
-    db_pool = None
-
-    def try_init_db():
-        nonlocal db_writer, db_pool
-        try:
-            # lazy import to avoid hard dependency when not used
-            from db import init_db, DBWriter
-            db_url = os.environ.get("DATABASE_URL")
-            if not db_url:
-                console.print("[yellow]DATABASE_URL not set; skipping DB writes[/yellow]")
-                return
-            db_pool = init_db(db_url)
-            db_writer = DBWriter(db_pool, batch_size=100)
-            db_writer.start()
-            console.print("[green]DB writer started[/green]")
-        except Exception as exc:
-            console.print(f"[red]Failed to init DB writer: {exc}[/red]")
-
     def on_progress(completed: int, total: int, result: dict) -> None:
         progress["completed"] = completed
         progress["total"] = total
@@ -541,27 +513,8 @@ def run_cli(target: str, ports_arg: str, threads: int, timeout: float, output: s
                 f"[bold green]  ● OPEN[/bold green]  "
                 f"[cyan]{result['host']}:{result['port']:<6}[/cyan] {result['service']}"
             )
-        # If DB writer active, enqueue a lightweight record
-        if db_writer is not None:
-            try:
-                db_writer.enqueue({
-                    "scan_id": scan_id,
-                    "ip": result.get("host"),
-                    "port": int(result.get("port")),
-                    "status": result.get("state"),
-                    "service": result.get("service"),
-                })
-            except Exception:
-                pass
 
     import time
-
-    # unique scan session id
-    scan_id = str(uuid.uuid4())
-
-    # initialize DB writer if requested by caller
-    if db_enabled:
-        try_init_db()
 
     start_ts = time.perf_counter()
     with console.status(
@@ -594,18 +547,6 @@ def run_cli(target: str, ports_arg: str, threads: int, timeout: float, output: s
         )
         console.print(f"[green]Saved results to {output}[/green]")
 
-    # shutdown DB writer gracefully if it was started
-    if db_writer is not None:
-        try:
-            db_writer.stop(flush=True)
-        except Exception:
-            pass
-    if db_pool is not None:
-        try:
-            db_pool.closeall()
-        except Exception:
-            pass
-
 
 # ══════════════════════════════════════════════════════════
 #  Threaded Demo / CLI Entry Point
@@ -624,7 +565,7 @@ if __name__ == "__main__":
 
     if args.target:
         try:
-            run_cli(args.target, args.ports, args.threads, args.timeout, args.output, db_enabled=args.db)
+            run_cli(args.target, args.ports, args.threads, args.timeout, args.output)
         except ValueError as exc:
             parser.error(str(exc))
     else:

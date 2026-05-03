@@ -75,8 +75,6 @@ popd
 exit /b %errorlevel%
 
 :gui
-echo Initializing database...
-python init_db_startup.py
 echo Starting GUI (press Ctrl+C to quit)...
 python gui.py
 popd

@@ -1,6 +1,6 @@
 # Network Scanner
 
-A multi-threaded TCP network scanner built in Python for internal network auditing and security assessments. Supports CIDR subnet scanning, configurable port ranges, concurrent thread execution, a professional `argparse` CLI, a modern `customtkinter` GUI, and an optional Flask dashboard backed by PostgreSQL.
+A multi-threaded TCP network scanner built in Python for internal network auditing and security assessments. Supports CIDR subnet scanning, configurable port ranges, concurrent thread execution, a professional `argparse` CLI, and a modern `customtkinter` GUI.
 
 > Built as coursework for the **Python Programming — Network Programming Design** module at NIBM School of Computing & Engineering.
 
@@ -13,8 +13,6 @@ A multi-threaded TCP network scanner built in Python for internal network auditi
 - **Multi-threaded scanning** — up to 10–100× faster than sequential via `concurrent.futures`
 - **Professional CLI** with `argparse` — flags for target, ports, threads, timeout, and output
 - **Modern GUI** built with `customtkinter` — dark/light mode, live results, progress bar, export
-- **Web dashboard** built with Flask — modern local reporting console with scan history, stats, exposure findings, and remediation hints
-- **PostgreSQL support** — optional persistent storage for scan results via `DATABASE_URL`
 - **Rich terminal output** — coloured tables, spinners, and scan summaries
 
 ---
@@ -23,13 +21,10 @@ A multi-threaded TCP network scanner built in Python for internal network auditi
 
 ```
 Network-Scanner-Project/
-├── db.py              # PostgreSQL helpers and DB writer
 ├── scanner.py        # Core engine + CLI interface (main deliverable)
 ├── gui.py            # Desktop GUI application
-├── webapp.py          # Flask dashboard + API
-├── run.sh             # One-command launcher for GUI / CLI / smoke test
-├── setup.bat          # Windows launcher for PowerShell / cmd.exe
-├── .env.example       # Example environment variables
+├── run.sh            # One-command launcher for GUI / CLI / smoke test
+├── setup.bat         # Windows launcher for PowerShell / cmd.exe
 ├── requirements.txt  # Python dependencies
 └── README.md
 ```
@@ -38,7 +33,7 @@ Network-Scanner-Project/
 
 ## Installation
 
-**Requirements:** Python 3.10+, optional PostgreSQL 13+
+**Requirements:** Python 3.10+
 
 ```bash
 # 1. Clone the repository
@@ -47,10 +42,6 @@ cd Network-Scanner-Project
 
 # 2. Install dependencies
 pip install -r requirements.txt
-
-# 3. Optional: set the database connection string
-# Linux/macOS/Git Bash
-export DATABASE_URL="postgresql://postgres:password@localhost:5432/network_scanner_db"
 ```
 
 ---
@@ -71,9 +62,6 @@ python scanner.py --target 10.0.0.1 --ports 22,80,443,3306 --threads 200 --timeo
 
 # Save results to a file
 python scanner.py --target 192.168.1.0/24 --output results.txt
-
-# Save results to PostgreSQL as well
-python scanner.py --target 192.168.1.0/24 --db
 ```
 
 #### Available Flags
@@ -83,9 +71,8 @@ python scanner.py --target 192.168.1.0/24 --db
 | `--target` | IP address, hostname, or CIDR block (required) | — |
 | `--ports` | Port or range: `80`, `1-1024`, `22,80,443` | `1-1024` |
 | `--threads` | Number of concurrent threads | `100` |
-| `--timeout` | Seconds per port before marking filtered | `1.0` |
+| `--timeout` | Seconds per port before marking filtered | `3.0` |
 | `--output` | Save results to a `.txt` file | disabled |
-| `--db` | Save results to PostgreSQL using `DATABASE_URL` | disabled |
 
 ### GUI
 
@@ -94,30 +81,6 @@ python gui.py
 ```
 
 The GUI supports CIDR targets, multi-select port toggles for common ports, an optional custom port field for ranges/lists, live threaded progress, and export of the most recent scan results.
-
-The port selector is shown as a grid of toggles for the most common ports, so you can pick several at once without typing them manually. If you need a wider range or a custom list, use the custom ports field below the toggles.
-
-### Web Dashboard
-
-```bash
-python webapp.py
-```
-
-Open the dashboard in your browser at:
-
-```text
-http://127.0.0.1:5000/
-```
-
-The dashboard is a read-only reporting surface for stored scan data. It shows scan-session history, summary metrics, recurring exposure patterns, and concise remediation guidance for the most relevant findings. It is separate from the desktop GUI and only shows data if `DATABASE_URL` is configured.
-
-What it shows:
-
-- Recent scan sessions grouped by `scan_id`
-- Summary cards for scan volume, open ports, and critical findings
-- Trend charts for scan activity and status breakdown
-- Top exposed ports and hosts
-- Defensive hardening guidance for risky exposure points
 
 ### One-command launcher
 
@@ -146,7 +109,6 @@ On Windows, `setup.bat` creates the virtual environment if needed, installs depe
 | 3 | Multi-threading (`concurrent.futures`) | ✅ Complete |
 | 4 | CLI interface (`argparse`) | ✅ Complete |
 | 5 | Desktop GUI (`customtkinter`) | ✅ Complete |
-| 6 | PostgreSQL storage + Flask dashboard | 🔄 In progress |
 
 ---
 
@@ -164,50 +126,5 @@ Only scan networks and hosts you own or have explicit written permission to test
 | Member 2 | Phase 2 — Subnet parsing |
 | Member 3 | Phase 3 — Multi-threading |
 | Member 4 | Phase 4 — CLI / Phase 5 — GUI |
-
----
-
-## PostgreSQL local setup (Windows)
-
-If you want to enable persistent storage for scan results using PostgreSQL on your development machine, follow these steps.
-
-- Ensure PostgreSQL is installed (e.g. PostgreSQL 18) and `pgAdmin` is available.
-- The project expects a database URL in the `DATABASE_URL` environment variable or a local `.env` file. Example format:
-
-```
-DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/<dbname>
-```
-
-Quick local defaults (what was used during development):
-
-- Host: `localhost`
-- Port: `5434` (your installer may use 5432; check `postgresql.conf`)
-- Superuser: `postgres`
-- Example DB name: `scannerDB`
-
-Example `.env` (DO NOT commit credentials):
-
-```
-# .env (local, ignored)
-DATABASE_URL=postgresql://postgres:admin@localhost:5434/scannerDB
-```
-
-Initialize the database and create the schema (run from the project root with your venv activated):
-
-```powershell
-# activate venv (PowerShell)
-. .\.venv\Scripts\Activate.ps1
-# run init script (creates DB if missing and creates the scans table)
-python init_db_startup.py
-```
-
-If the script fails to connect, check:
-
-- That the PostgreSQL service is running (Windows Services or `pgAdmin`).
-- The port PostgreSQL is listening on (`postgresql.conf`: `listen_addresses` and `port`).
-- `pg_hba.conf` for authentication method (local host entries normally use `scram-sha-256` requiring a password).
-
-Security note: keep `.env` in `.gitignore` and do not commit passwords to the repository. For CI or shared deployments, use secure secret management.
-The example `admin` password is for local development only; change it before using PostgreSQL on any shared or production system.
 
 ---

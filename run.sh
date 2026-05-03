@@ -67,8 +67,6 @@ CMD="${1:-gui}"
 shift || true
 case "$CMD" in
   gui)
-    echo "Initializing database..."
-    python init_db_startup.py
     echo "Starting GUI (press Ctrl-C to quit)..."
     python gui.py
     ;;
