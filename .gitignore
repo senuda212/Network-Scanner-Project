@@ -3,5 +3,6 @@ __pycache__/
 *.pyo
 *.pyd
 .venv/
+.vscode/
 # Local environment file (contains secrets)
 .env
