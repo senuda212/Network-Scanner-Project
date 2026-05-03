@@ -219,7 +219,7 @@ class NetworkScannerApp(ctk.CTk):
         self._section_label(parent, "Results Overview")
 
         metrics = ctk.CTkFrame(parent, fg_color="transparent")
-        metrics.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 8))
+        metrics.pack(fill="x", padx=18, pady=(0, 8))
         for column in range(4):
             metrics.grid_columnconfigure(column, weight=1)
 
@@ -238,11 +238,11 @@ class NetworkScannerApp(ctk.CTk):
             self.metric_labels[key] = value
 
         self.results_box = ctk.CTkTextbox(parent, fg_color="#050b16", corner_radius=14)
-        self.results_box.grid(row=2, column=0, sticky="nsew", padx=18, pady=(0, 12))
+        self.results_box.pack(fill="both", expand=True, padx=18, pady=(0, 12))
         self.results_box.insert("end", "Scan results will appear here.\n")
 
         footer = ctk.CTkFrame(parent, fg_color="transparent")
-        footer.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 18))
+        footer.pack(fill="x", padx=18, pady=(0, 18))
         footer.grid_columnconfigure(0, weight=1)
         self.summary_label = ctk.CTkLabel(footer, text="No scan started yet", text_color="#94a3b8")
         self.summary_label.grid(row=0, column=0, sticky="w")
@@ -289,7 +289,7 @@ class NetworkScannerApp(ctk.CTk):
 
         self.selected_ports = set(ports)
         for port, button in self.port_buttons.items():
-            button.configure(fg_color="#2563eb" if port in ports else="#334155")
+            button.configure(fg_color="#2563eb" if port in ports else "#334155")
 
     def clear_results(self) -> None:
         self.last_results = []
